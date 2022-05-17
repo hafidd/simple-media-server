@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simple Media Server</title>
+  </head>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    .app {
+      max-width: 100%;
+      height: 100vh;
+      max-height: 100%;
+      overflow-x: hidden;
+    }
+
+    .dir,
+    .file {
+      margin-right: 2px;
+      margin-top: 20px;
+    }
+
+    #player {
+      width: 100%;
+      position: fixed;
+
+      display: none;
+    }
+
+    #video {
+      height: 250px;
+    }
+
+    .player-show {
+      display: flex !important;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .mt290px {
+      margin-top: 300px;
+    }
+
+    button {
+      background: darkgray;
+      border: 1px solid lightgray;
+      padding: 2px;
+    }
+
+    #video {
+      width: 100%;
+      border: 1px solid lightgray;
+    }
+
+    @media only screen and (min-width: 480px) {
+      #f {
+        display: flex;
+      }
+
+      #video {
+        height: 250px;
+        width: auto;
+      }
+    }
+
+    .dark {
+      background: rgb(22, 22, 22);
+      color: lightgray;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+
+  <body>
+    <div class="app dark">
+      <div id="player" class="hidden dark">
+        <video id="video" controls muted="muted">
+          <source id="videoSource" src="" type="" />
+        </video>
+        <div>
+          <small id="load-subtitle" class="hidden">Loading subtitle ...</small>
+        </div>
+        <div>
+          <h4 id="videoTitle"></h4>
+          <input type="text" id="videoUrl" readonly />
+          <p id="test"></p>
+        </div>
+      </div>
+
+      <div id="f">
+        <div class="directories" style="padding: 10px">
+          <div id="path" style="font-size: smaller; font-weight: bolder"></div>
+          <div id="dirs" style="margin-bottom: 10px"></div>
+        </div>
+
+        <div class="line" style="display: none">
+          <hr />
+          <hr style="margin-bottom: 10px" />
+        </div>
+
+        <div class="files" style="padding: 10px">
+          <p><b>Files : </b></p>
+          <div id="files"></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+<script>
+  let path = ["/", "mnt", "d", "download"];
+
+  const videoEl = document.getElementById("video");
+  const sourceEl = document.getElementById("videoSource");
+  const loadingSubtitleEl = document.getElementById("load-subtitle");
+
+  let data = [];
+  try {
+    data =
+      window.localStorage.getItem("data") !== null
+        ? JSON.parse(window.localStorage.getItem("data"))
+        : data;
+  } catch (error) {
+    window.localStorage.removeItem("data");
+  }
+
+  setInterval(() => {
+    const videoSrc = sourceEl.getAttribute("src");
+    const isVideoPlaying = !!(
+      videoEl.currentTime > 0 &&
+      !videoEl.paused &&
+      !videoEl.ended &&
+      videoEl.readyState > 2
+    );
+
+    if (videoSrc != "" && isVideoPlaying && videoEl.currentTime > 60) {
+      console.log("saving...", videoEl.currentTime);
+
+      //console.log(data);
+
+      if (data.length > 0 && data.find((d) => d.src === videoSrc))
+        data = data.map((d) => {
+          if (d.src === videoSrc) d.time = videoEl.currentTime;
+          return d;
+        });
+      else data.push({ src: videoSrc, time: videoEl.currentTime });
+
+      //console.log(data);
+
+      window.localStorage.setItem("data", JSON.stringify(data));
+    }
+  }, 30000);
+
+  function getDirs(cd = true) {
+    try {
+      if (!cd) {
+        p = JSON.parse(new URLSearchParams(window.location.search).get("path"));
+        path = p !== null ? p : path;
+      }
+    } catch (error) {
+      console.log(error);
+    }
+
+    fetch("/dir/" + encodeURIComponent(JSON.stringify(path)))
+      .then((res) => res.json())
+      .then((res) => {
+        const dirs = document.getElementById("dirs");
+        dirs.innerHTML = "";
+        if (path.length > 0) {
+          const back = document.createElement("span");
+          back.innerHTML = `<button onclick="back()"> &laquo; Back </button><br />`;
+          dirs.appendChild(back);
+        }
+        res.dirs.forEach((dir) => {
+          const newList = document.createElement("span");
+          newList.classList.add("dir");
+          newList.innerHTML = `<button onclick="openDir('${dir}')">${dir}</button>`;
+          dirs.appendChild(newList);
+        });
+        // files
+        const files = document.getElementById("files");
+        files.innerHTML = "";
+        res.files.forEach((file) => {
+          const newList = document.createElement("span");
+          newList.classList.add("file");
+          newList.innerHTML = `<button onclick="play('${file}')">
+                        <image height="85px" alt="${file}" src="/video/${encodeURIComponent(
+            JSON.stringify([...path, file])
+          )}/thumbnail" loading="lazy" />
+                        ${file}
+                    </button>`;
+          files.appendChild(newList);
+        });
+        renderPath();
+
+        //set url
+        if (history.pushState) {
+          var newurl =
+            window.location.protocol +
+            "//" +
+            window.location.host +
+            window.location.pathname +
+            `?path=${encodeURIComponent(JSON.stringify(path))}`;
+          window.history.pushState({ path: newurl }, "", newurl);
+        }
+      })
+      .catch((err) => console.log(err));
+  }
+
+  function setVideo(props = "") {
+    const { src = "", subtitles = "", type = "video/mp4" } = props;
+
+    // remove prev subtitle
+    videoEl
+      .querySelectorAll("track")
+      .forEach((track) => videoEl.removeChild(track));
+
+    if (src != "") document.getElementById("f").classList.add("mt290px");
+    else {
+      document.getElementById("f").classList.remove("mt290px");
+    }
+
+    if (sourceEl.getAttribute("src") !== "") {
+      videoEl.pause();
+      videoEl.currentTime = 0;
+    }
+    sourceEl.setAttribute("src", src);
+    sourceEl.setAttribute("type", type);
+
+    // get substitles
+    if (src != "") loadingSubtitleEl.classList.remove("hidden");
+    fetch(subtitles)
+      .then((res) => res.json())
+      .then((res) => {
+        loadingSubtitleEl.classList.add("hidden");
+        res.forEach((sub) => {
+          const subEl = document.createElement("track");
+          subEl.setAttribute("kind", "subtitles");
+          subEl.setAttribute("label", sub.language + "_" + sub.number);
+          subEl.setAttribute("src", sub.p);
+          videoEl.appendChild(subEl);
+        });
+      });
+
+    videoEl.load();
+    const vData = data.find((d) => d.src === src);
+    if (vData) videoEl.currentTime = vData.time;
+  }
+
+  function play(fileName) {
+    document.getElementById("videoTitle").innerHTML = "";
+    setVideo();
+    fetch("/play/" + encodeURIComponent(JSON.stringify([...path, fileName])))
+      .then((res) => res.json())
+      .then((res) => {
+        document.getElementById("player").classList.add("player-show");
+        document.getElementById("videoTitle").innerHTML = fileName;
+        document.getElementById("videoUrl").value =
+          window.location.protocol +
+          "//" +
+          window.location.hostname +
+          ":" +
+          window.location.port +
+          res.src;
+        setVideo({ src: res.src, subtitles: res.subtitles });
+      });
+  }
+
+  function openDir(p = "") {
+    path.push(p);
+    getDirs();
+  }
+  function back() {
+    path.pop();
+    getDirs();
+  }
+
+  function renderPath() {
+    const pathDiv = document.getElementById("path");
+    pathDiv.innerHTML = "";
+    if (path.length > 0) {
+      path.forEach((p, i) => {
+        const newPath = document.createElement("span");
+        newPath.innerHTML = `${p} ${i > 0 ? "/" : ""}`;
+        pathDiv.appendChild(newPath);
+      });
+    }
+  }
+
+  getDirs(false);
+</script>

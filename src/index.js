@@ -4,10 +4,21 @@ import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
+
 root.render(
   <React.StrictMode>
-    <App />
+    <Router>
+      <Routes>
+        <Route path="/" element={<App />}>
+          <Route path=":dirParam" element={<App />} />
+          <Route path=":dirParam/:fileParam" element={<App />} />
+        </Route>
+        <Route path="*" element={<App notFound={true} />} />
+      </Routes>
+    </Router>
   </React.StrictMode>
 );
 
