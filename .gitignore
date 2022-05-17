@@ -18,6 +18,10 @@
 .env.test.local
 .env.production.local
 
+# generated files
+# /server/files/subtitles/
+#/server/files/thumbnails/
+
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
