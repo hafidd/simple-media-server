@@ -122,6 +122,7 @@ app.get("/play/:p", (req, res) => {
 function __sendErrorResponse(error, res) {
   if (error.status) return res.status(error.status).send(error.message);
   if (error instanceof SyntaxError) return res.status(404).send("not found");
+  // 
   console.log(error);
   return res.status(500).send("unknown error");
 }

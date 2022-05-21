@@ -6,27 +6,11 @@ const genThumbnail = require("simple-thumbnail");
 const { SubtitleParser } = require("matroska-subtitles");
 const Vtt = require("vtt-creator");
 
-// [drivelist]
-// get root directory
+const platform = os.platform();
+
 async function getRootDirs() {
-  try {
-    const drivelist = require("drivelist");
-    const dirs = [];
-    const drives = await drivelist.list();
-    drives
-      .filter((drive) => drive.mountpoints.length > 0)
-      .forEach((drive) =>
-        drive.mountpoints.forEach((mp) => dirs.push(mp.path))
-      );
-    return { dirs, files: [] };
-  } catch (error) {
-    //console.log(error);
-    return getRootDirsV2();
-  }
-}
-async function getRootDirsV2() {
-  if (os.platform() === "win32") {
-    console.log("windows");
+  if (platform === "win32") {
+    //console.log("windows");
     try {
       const child = require("child_process");
       // nyari C: D: E: dst...
@@ -37,8 +21,7 @@ async function getRootDirsV2() {
         .map((value) => value.trim());
       return { dirs, files: [] };
     } catch (error) {
-      console.log(error);
-      throw newErr({ status: 500 });
+      __returnError(error);
     }
   } else {
     try {
@@ -46,8 +29,7 @@ async function getRootDirsV2() {
       //const dirs = await getDirs("/");
       return dirs;
     } catch (error) {
-      console.log(error);
-      throw newErr({ status: 500 });
+      __returnError(error);
     }
   }
 }
@@ -58,9 +40,11 @@ function getDirs(
   p = [],
   ext = [".mp4", ".mkv", ".flv", ".mov", ".avi", ".wmv"]
 ) {
+  p = getFilePath(p);
+  console.log(p);
   try {
     if (p.length < 1) return getRootDirs();
-    const fullPath = path.join(...p, "/");
+    const fullPath = path.join(p, "/");
     //console.log(fullPath);
     const allFiles = fs.readdirSync(fullPath, { withFileTypes: true });
     const dirs = allFiles
@@ -76,22 +60,17 @@ function getDirs(
       .map((item) => item.name);
     return { dirs, files };
   } catch (error) {
-    if (
-      (error.code && (error.code === "ENOENT" || error.code === "EACCES")) ||
-      error instanceof TypeError
-    )
-      throw newErr({ status: 404, message: "not found" });
-    console.log(error);
-    throw error;
+    __returnError(error);
   }
 }
 
+let test = 1;
 // create file stream
 function getFileStream(props) {
   try {
     const { range, arrPath, stringPath } = props;
     filePath = arrPath ? getFilePath(arrPath) : stringPath;
-    console.log(filePath);
+    //console.log(filePath);
     const stat = fs.statSync(filePath);
     const total = stat.size;
 
@@ -100,7 +79,7 @@ function getFileStream(props) {
       const partialstart = parts[0];
       const partialend = parts[1];
 
-      const max = 2000000;
+      const max = 2 * 1024 * 1024;
 
       const start = parseInt(partialstart, 10);
       //const endx = partialend ? parseInt(partialend, 10) : total - 1;
@@ -110,13 +89,13 @@ function getFileStream(props) {
         ? start + max - 1
         : total - 1;
       const chunksize = end - start + 1;
-      // console.log(
-      //   filePath,
-      //   `${total / 1000000} MB`,
-      //   start,
-      //   end,
-      //   `${chunksize / 1000000} MB`
-      // );
+      console.log(
+        filePath,
+        `(${test++})`,
+        `${Math.trunc(total / (1024 * 1024))}MB`,
+        `Start:${start}`,
+        `End:${start}`
+      );
 
       return {
         stream: fs.createReadStream(filePath, { start: start, end: end }),
@@ -129,7 +108,7 @@ function getFileStream(props) {
       };
     }
   } catch (error) {
-    throw fsErr(error);
+    __returnError(error);
   }
 }
 
@@ -237,13 +216,12 @@ async function getThumbnailStream(videoPath) {
 
   // thumbnail not exist, create new
   try {
-    if (!checkFileExistsSync(videoPath)) throw newErr({ status: 404 });
+    if (!checkFileExistsSync(videoPath))
+      throw newErr({ status: 404, message: "file not found" });
     await genThumbnail(videoPath, tbPath, "?x85");
     return fs.createReadStream(tbPath);
   } catch (error) {
-    console.log("error generate thumbnail");
-    console.log(error);
-    throw newErr({ status: 500 });
+    __returnError(error);
   }
 }
 
@@ -254,14 +232,6 @@ function newErr(props) {
   const err = new Error();
   err.status = status;
   err.message = message;
-  return err;
-}
-
-function fsErr(error) {
-  const err = new Error();
-  err.status = error.code && error.code === "ENOENT" ? 404 : 500;
-  err.message =
-    error.code && error.code === "ENOENT" ? "file not found" : error.message;
   return err;
 }
 
@@ -276,7 +246,10 @@ function checkFileExistsSync(filepath) {
 }
 
 // convert array to filepath
-const getFilePath = (p = []) => path.join(...p);
+const getFilePath = (p = []) => {
+  p = platform === "win32" ? p : ["/", ...p];
+  return path.join(...p);
+};
 
 const getMimeType = (fileName) => {
   switch (fileName) {
@@ -297,6 +270,17 @@ const getMimeType = (fileName) => {
       return "";
   }
 };
+
+function __returnError(error) {
+  if (
+    (error.code && (error.code === "ENOENT" || error.code === "EACCES")) ||
+    error instanceof TypeError ||
+    (error.status && error.status === 404)
+  )
+    throw newErr({ status: 404, message: "not found" });
+  console.log(error);
+  throw error;
+}
 
 module.exports = {
   getDirs,

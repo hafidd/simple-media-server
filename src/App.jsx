@@ -1,16 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
-import { useParams, Navigate } from "react-router-dom";
+import { useParams, useSearchParams, Navigate } from "react-router-dom";
 import axios from "axios";
+import { v1 } from "uuid";
 
 import {
   videoHistoryLocal,
   favoritesLocal,
   settings,
+  playlistLocal,
+  playlistsLocal,
 } from "./localStorageData";
 
 import Main from "./components/Main";
 import Sidebar from "./components/Sidebar";
+import Playlist from "./components/Playlist";
 
 function App(props) {
   const { notFound = false } = props;
@@ -23,6 +27,10 @@ function App(props) {
   const [subtitles, setSubtitles] = useState([]);
   const [loadingSubtitles, setLoadingSubtitles] = useState(false);
 
+  const [playlists, setPlaylists] = useState(playlistsLocal);
+  const [playlist, setPlaylist] = useState({});
+  const [activePlaylist, setActivePlaylist] = useState(playlistLocal);
+
   const [dirs, setDirs] = useState([]);
   const [files, setFiles] = useState([]);
 
@@ -31,9 +39,27 @@ function App(props) {
   const [favorites, setFavorites] = useState(favoritesLocal);
   const [videoHistory, setVideoHistory] = useState(videoHistoryLocal);
 
-  const cancelTokenSource = useRef();
+  const [smShowSidebar, setSmShowSidebar] = useState(false);
+  const [showPlaylist, setShowPlaylist] = useState(false);
 
+  // settings
+  const [startDir, setStartDir] = useState(settings.startDir);
+  const [autoPlay, setAutoPlay] = useState(settings.autoPlay);
+  const [autoNext, setAutoNext] = useState(settings.autoNext);
+
+  const [colorMode, setColorMode] = useState(settings.colorMode); // light/dark/auto
+  // dark mode
+  const darkMode =
+    colorMode === "dark"
+      ? true
+      : colorMode === "light"
+      ? false
+      : window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+  const cancelTokenSource = useRef();
   const openDir = useCallback((dirPath) => {
+    console.log("callback openDir");
     // cancel prev request
     if (cancelTokenSource.current) cancelTokenSource.current.cancel();
     cancelTokenSource.current = axios.CancelToken.source();
@@ -65,22 +91,71 @@ function App(props) {
       });
   }, []);
 
-  useEffect(() => {
-    openDir(settings.startDir);
-  }, [openDir]);
+  const saveSettings = useCallback(
+    ({ startingDir, color, enableAutoPlay, enableAutoNext }) => {
+      console.log("callback saveSettings", {
+        startingDir,
+        color,
+        enableAutoPlay,
+        enableAutoNext,
+      });
+      try {
+        //const settings = JSON.parse(localStorage.getItem("settings"));
+        const settings = {
+          startDir: startingDir ? startingDir : startDir,
+          colorMode: color ? color : colorMode,
+          autoNext: enableAutoNext !== undefined ? enableAutoNext : autoNext,
+          autoPlay: enableAutoPlay !== undefined ? enableAutoPlay : autoPlay,
+        };
+        console.log("saving", settings);
+        localStorage.setItem("settings", JSON.stringify(settings));
+      } catch (error) {
+        localStorage.removeItem("settings");
+      }
+    },
+    [startDir, colorMode, autoPlay, autoNext]
+  );
+
+  const updateSettings = ({
+    startingDir,
+    color,
+    enableAutoPlay,
+    enableAutoNext,
+  }) => {
+    console.log("updatSettings");
+    if (startingDir) setStartDir(startingDir);
+    if (color) setColorMode(color);
+    if (enableAutoNext !== undefined) setAutoNext(enableAutoNext);
+    if (enableAutoPlay !== undefined) setAutoPlay(enableAutoPlay);
+    saveSettings({ startingDir, color, enableAutoPlay, enableAutoNext });
+  };
+
+  const createPlaylist = ({ name, playlist }) => {
+    console.log("new playlist", { name, playlist });
+    if (playlist) return setPlaylists((prev) => [...prev, playlist]);
+    if (name)
+      setPlaylists((prev) => [
+        ...prev,
+        { id: v1(), name, files: [], isDirectory: false },
+      ]);
+  };
 
   useEffect(() => {
-    if (!dirParam) return;
+    console.log("useEffect [dirParam, startDir, openDir]", {
+      dirParam,
+      startDir,
+    });
     try {
-      if (dirParam === "") return openDir(settings.startDir);
+      if (dirParam === "") return openDir(startDir);
       const dirPath = dirParam !== "" ? JSON.parse(dirParam) : "";
       openDir(dirPath);
     } catch (error) {
       <Navigate to="/" />;
     }
-  }, [dirParam, openDir]);
+  }, [dirParam, startDir, openDir]);
 
   useEffect(() => {
+    console.log("useEffect [fileparam]");
     try {
       const videoSrc =
         fileParam !== "" ? `/video/${encodeURIComponent(fileParam)}` : "";
@@ -106,6 +181,8 @@ function App(props) {
   }, [fileParam]);
 
   useEffect(() => {
+    console.log("useEffect [fileSelected]");
+    // load subtitles
     if (fileSelected !== null) {
       setLoadingSubtitles(true);
       axios
@@ -116,80 +193,170 @@ function App(props) {
     } else setSubtitles([]);
   }, [fileSelected]);
 
-  const [smShowSidebar, setSmShowSidebar] = useState(false);
+  // set playlist
+  const [search, setSearch] = useSearchParams();
+  const pl = search.get("pl");
+  useEffect(() => {
+    if (pl === undefined || !fileSelected) return;
+    console.log("useEffect [pl, files] *", { pl, fileSelected, files });
+    if (pl === "new") {
+      // set directory as playlist
+      const playlistData = {
+        id: v1(),
+        name: path.join("/"),
+        files,
+        isDirectory: true,
+      };
+      setActivePlaylist(playlistData);
+      localStorage.setItem("playlist", JSON.stringify(playlistData));
+      setSearch({ pl: "" });
+    } else if (pl !== "" && pl !== null) {
+      // set playlist
+      const playlistData = playlists.find(
+        (playlist) =>
+          playlist.id === pl &&
+          (!fileSelected ||
+            playlist.files.findIndex(
+              (file) => fileSelected.name === file.name
+            ) !== -1)
+      );
+      console.log("huuhuh0", pl, playlistData);
+      setActivePlaylist(playlistData);
+      localStorage.setItem("playlist", JSON.stringify(playlistData));
+      //setSearch({ pl: "" });
+    }
+  }, [pl, fileSelected, files, path, playlists, setSearch]);
 
   useEffect(() => {
+    console.log("useEffect [videoHistory]");
     window.localStorage.setItem("videoHistory", JSON.stringify(videoHistory));
   }, [videoHistory]);
+
   useEffect(() => {
+    console.log("useEffect [favorites]");
     window.localStorage.setItem("favorites", JSON.stringify(favorites));
   }, [favorites]);
 
+  useEffect(() => {
+    localStorage.setItem("playlists", JSON.stringify(playlists));
+  }, [playlists]);
+
+  // children props
+  const sidebarProps = {
+    videoHistory: videoHistory.sort(
+      (a, b) => new Date(b.date) - new Date(a.date)
+    ),
+    dirs,
+    path,
+    startDir,
+    favorites,
+    setSmShowSidebar,
+  };
+  const mainProps = {
+    files:
+      filterName === ""
+        ? files
+        : files.filter(
+            (file) =>
+              file.name.toLowerCase().indexOf(filterName.toLowerCase()) !== -1
+          ),
+    fav:
+      favorites.map((f) => JSON.stringify(f)).indexOf(JSON.stringify(path)) !==
+      -1,
+    fileSelected,
+    activePlaylist,
+    filterName,
+    subtitles,
+    autoNext,
+    autoPlay,
+    startDir,
+    colorMode,
+    dirs,
+    path,
+    loadingSubtitles,
+    videoHistory,
+    playlist,
+    playlists,
+    setFavorites,
+    setVideoHistory,
+    setFileSelected,
+    setFilterName,
+    setShowPlaylist,
+    setPlaylist,
+    setPlaylists,
+    updateSettings,
+  };
+  const playlistProps = {
+    activePlaylist,
+    playlists,
+    fileSelected,
+    createPlaylist,
+    setShowPlaylist,
+    setPlaylist,
+  };
+
   return (
-    <div className="md:flex h-screen overflow-auto">
+    <div className={`h-screen overflow-auto md:flex ${darkMode && "dark"}`}>
       <Sidebar
         className={`${
-          !smShowSidebar ? "hidden" : ""
-        } fixed w-10/12 overflow-auto border-r-2 z-20 bg-white md:static md:block md:flex-shrink-0 md:w-96 h-full p-5`}
-        dirs={dirs}
-        path={path}
-        home={JSON.stringify(path) === JSON.stringify(settings.startDir)}
-        favorites={favorites}
-        videoHistory={videoHistory.sort(
-          (a, b) => new Date(b.date) - new Date(a.date)
-        )}
-        setSmShowSidebar={setSmShowSidebar}
+          !smShowSidebar && "hidden"
+        } fixed w-10/12 overflow-auto border-r-2 z-20 
+        dark:bg-slate-900 dark:text-slate-400 
+        md:static md:block md:flex-shrink-0 md:w-96 h-full p-5`}
+        {...sidebarProps}
       />
 
       {notFound ? (
-        "Not found"
+        <NotFound />
       ) : (
         <Main
-          className="w-full h-full flex flex-col"
-          dirs={dirs}
-          path={path}
-          files={
-            filterName === ""
-              ? files
-              : files.filter(
-                  (file) =>
-                    file.name
-                      .toLowerCase()
-                      .indexOf(filterName.toLowerCase()) !== -1
-                )
-          }
-          fileSelected={fileSelected}
-          filterName={filterName}
-          subtitles={subtitles}
-          fav={
-            favorites
-              .map((f) => JSON.stringify(f))
-              .indexOf(JSON.stringify(path)) !== -1
-          }
-          setFavorites={setFavorites}
-          loadingSubtitles={loadingSubtitles}
-          videoHistory={videoHistory}
-          setVideoHistory={setVideoHistory}
-          setFileSelected={setFileSelected}
-          setFilterName={setFilterName}
+          className={`w-full h-full overflow-hidden flex flex-col bg-white 
+            dark:bg-slate-900 dark:text-slate-400`}
+          {...mainProps}
         />
       )}
 
-      {!smShowSidebar && (
-        <div className="fixed bottom-4 right-4 md:hidden">
-          <button
-            className="px-4 py-2 bg-blue-100 opacity-80 border border-blue-200 font-extrabold md:hidden"
-            onClick={() => {
-              setSmShowSidebar(true);
-            }}
-          >
-            {" "}
-            &#9776;{" "}
-          </button>
-        </div>
-      )}
+      <Playlist
+        className={`${
+          !showPlaylist && "hidden"
+        } fixed left-0 top-0 z-40 h-full w-full
+         dark:text-slate-400`}
+        {...playlistProps}
+      />
+
+      {!smShowSidebar && <MenuButton setSmShowSidebar={setSmShowSidebar} />}
+      {!showPlaylist && <PlaylistButton setShowPlaylist={setShowPlaylist} />}
     </div>
   );
 }
+
+const NotFound = () => (
+  <div className="flex w-full justify-center items-center text-4xl">
+    404 page not found
+  </div>
+);
+
+const MenuButton = ({ setSmShowSidebar }) => (
+  <div className="fixed bottom-4 right-4 md:hidden">
+    <button
+      className="px-4 py-2 bg-blue-100 opacity-80 border border-blue-200 font-extrabold md:hidden"
+      onClick={() => setSmShowSidebar(true)}
+    >
+      {" "}
+      &#9776;{" "}
+    </button>
+  </div>
+);
+
+const PlaylistButton = ({ setShowPlaylist }) => (
+  <div className="fixed bottom-16 right-4 md:bottom-4">
+    <button
+      className="px-4 py-2 bg-blue-100 opacity-80 border border-blue-200 font-extrabold"
+      onClick={() => setShowPlaylist(true)}
+    >
+      📃
+    </button>
+  </div>
+);
 
 export default App;

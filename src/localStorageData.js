@@ -1,6 +1,13 @@
-let settings = { startDir: ["/"] };
+let settings = {
+  startDir: [],
+  colorMode: "auto",
+  autoPlay: false,
+  autoNext: false,
+};
 let favoritesLocal = [];
 let videoHistoryLocal = [];
+let playlistLocal = [];
+let playlistsLocal = [];
 
 console.log("loading local storage data");
 
@@ -31,4 +38,42 @@ try {
   window.localStorage.removeItem("settings");
 }
 
-export { videoHistoryLocal, favoritesLocal, settings };
+try {
+  const playlist = JSON.parse(window.localStorage.getItem("playlist"));
+  if (
+    !playlist ||
+    !playlist.id ||
+    !playlist.name ||
+    !playlist.files ||
+    playlist.isDirectory === undefined
+  )
+    throw new Error();
+  playlistLocal = playlist;
+} catch (error) {
+  window.localStorage.removeItem("playlist");
+}
+
+try {
+  playlistsLocal =
+    window.localStorage.getItem("playlists") !== null
+      ? JSON.parse(window.localStorage.getItem("playlists"))
+      : playlistsLocal;
+} catch (error) {
+  window.localStorage.removeItem("playlists");
+}
+
+console.log({
+  settings,
+  favoritesLocal,
+  videoHistoryLocal,
+  playlistLocal,
+  playlistsLocal,
+});
+
+export {
+  videoHistoryLocal,
+  favoritesLocal,
+  playlistLocal,
+  playlistsLocal,
+  settings,
+};
