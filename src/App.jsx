@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
-import { useParams, useSearchParams, Navigate } from "react-router-dom";
+import { useParams, useSearchParams, Navigate, Link } from "react-router-dom";
 import axios from "axios";
-import { v1 } from "uuid";
+import { v1, v4 } from "uuid";
 
 import {
   videoHistoryLocal,
@@ -30,6 +30,7 @@ function App(props) {
   const [playlists, setPlaylists] = useState(playlistsLocal);
   const [playlist, setPlaylist] = useState({});
   const [activePlaylist, setActivePlaylist] = useState(playlistLocal);
+  // const [queue, setQueue] = useState([]);
 
   const [dirs, setDirs] = useState([]);
   const [files, setFiles] = useState([]);
@@ -46,6 +47,12 @@ function App(props) {
   const [startDir, setStartDir] = useState(settings.startDir);
   const [autoPlay, setAutoPlay] = useState(settings.autoPlay);
   const [autoNext, setAutoNext] = useState(settings.autoNext);
+  const [shuffle, setShuffle] = useState(settings.shuffle);
+
+  // sleep
+  const [sleep, setSleep] = useState(false);
+  const [sleepTimer, setSleepTimer] = useState(0);
+  let sleepIv = useRef();
 
   const [colorMode, setColorMode] = useState(settings.colorMode); // light/dark/auto
   // dark mode
@@ -59,7 +66,7 @@ function App(props) {
 
   const cancelTokenSource = useRef();
   const openDir = useCallback((dirPath) => {
-    console.log("callback openDir");
+    //console.log("callback openDir", dirPath);
     // cancel prev request
     if (cancelTokenSource.current) cancelTokenSource.current.cancel();
     cancelTokenSource.current = axios.CancelToken.source();
@@ -69,6 +76,7 @@ function App(props) {
         cancelToken: cancelTokenSource.current.token,
       })
       .then(({ data }) => {
+        //console.log(data);
         setPath(dirPath);
         setDirs(data.dirs);
         setFiles(
@@ -87,18 +95,20 @@ function App(props) {
         );
       })
       .catch((err) => {
-        <Navigate to="/" />;
+        //console.log(err);
+        return <Navigate to="/" />;
       });
   }, []);
 
   const saveSettings = useCallback(
-    ({ startingDir, color, enableAutoPlay, enableAutoNext }) => {
-      console.log("callback saveSettings", {
-        startingDir,
-        color,
-        enableAutoPlay,
-        enableAutoNext,
-      });
+    ({ startingDir, color, enableAutoPlay, enableAutoNext, enableShuffle }) => {
+      // console.log("callback saveSettings", {
+      //   startingDir,
+      //   color,
+      //   enableAutoPlay,
+      //   enableAutoNext,
+      //   enableShuffle,
+      // });
       try {
         //const settings = JSON.parse(localStorage.getItem("settings"));
         const settings = {
@@ -106,6 +116,7 @@ function App(props) {
           colorMode: color ? color : colorMode,
           autoNext: enableAutoNext !== undefined ? enableAutoNext : autoNext,
           autoPlay: enableAutoPlay !== undefined ? enableAutoPlay : autoPlay,
+          shuffle: enableShuffle !== undefined ? enableShuffle : shuffle,
         };
         console.log("saving", settings);
         localStorage.setItem("settings", JSON.stringify(settings));
@@ -113,7 +124,7 @@ function App(props) {
         localStorage.removeItem("settings");
       }
     },
-    [startDir, colorMode, autoPlay, autoNext]
+    [startDir, colorMode, autoPlay, autoNext, shuffle]
   );
 
   const updateSettings = ({
@@ -121,13 +132,21 @@ function App(props) {
     color,
     enableAutoPlay,
     enableAutoNext,
+    enableShuffle,
   }) => {
     console.log("updatSettings");
     if (startingDir) setStartDir(startingDir);
     if (color) setColorMode(color);
     if (enableAutoNext !== undefined) setAutoNext(enableAutoNext);
     if (enableAutoPlay !== undefined) setAutoPlay(enableAutoPlay);
-    saveSettings({ startingDir, color, enableAutoPlay, enableAutoNext });
+    if (enableShuffle !== undefined) setShuffle(enableShuffle);
+    saveSettings({
+      startingDir,
+      color,
+      enableAutoPlay,
+      enableAutoNext,
+      enableShuffle,
+    });
   };
 
   const createPlaylist = ({ name, playlist }) => {
@@ -140,11 +159,31 @@ function App(props) {
       ]);
   };
 
+  const startSleep = (time = 10) => {
+    setSleepTimer(time);
+    if (sleepIv.current) clearInterval(sleepIv.current);
+    sleepIv.current = setInterval(() => {
+      setSleepTimer((prev) => {
+        if (prev === 0) {
+          setSleep(true);
+          clearInterval(sleepIv.current);
+          return prev;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+  const cancelSleep = () => {
+    clearInterval(sleepIv.current);
+    setSleep(false);
+    setSleepTimer(0);
+  };
+
   useEffect(() => {
-    console.log("useEffect [dirParam, startDir, openDir]", {
-      dirParam,
-      startDir,
-    });
+    // console.log("useEffect [dirParam, startDir, openDir]", {
+    //   dirParam,
+    //   startDir,
+    // });
     try {
       if (dirParam === "") return openDir(startDir);
       const dirPath = dirParam !== "" ? JSON.parse(dirParam) : "";
@@ -155,7 +194,7 @@ function App(props) {
   }, [dirParam, startDir, openDir]);
 
   useEffect(() => {
-    console.log("useEffect [fileparam]");
+    //console.log("useEffect [fileparam]", fileParam);
     try {
       const videoSrc =
         fileParam !== "" ? `/video/${encodeURIComponent(fileParam)}` : "";
@@ -174,14 +213,17 @@ function App(props) {
           : "";
       // set file
       if (fileParam !== "") setFileSelected(file);
-      else setFileSelected(null);
+      else {
+        setFileSelected(null);
+        setActivePlaylist(null);
+      }
     } catch (error) {
       <Navigate to="/" />;
     }
   }, [fileParam]);
 
   useEffect(() => {
-    console.log("useEffect [fileSelected]");
+    //console.log("useEffect [fileSelected]");
     // load subtitles
     if (fileSelected !== null) {
       setLoadingSubtitles(true);
@@ -198,18 +240,31 @@ function App(props) {
   const pl = search.get("pl");
   useEffect(() => {
     if (pl === undefined || !fileSelected) return;
-    console.log("useEffect [pl, files] *", { pl, fileSelected, files });
+    //console.log("useEffect [pl, files] *", { pl, fileSelected, files });
     if (pl === "new") {
       // set directory as playlist
+      let fileId = "";
       const playlistData = {
         id: v1(),
         name: path.join("/"),
-        files,
+        files: files.map((file) => {
+          const fileData = { ...file, id: v4() };
+          if (fileSelected.name === file.name) {
+            console.log(`playing ` + file.name);
+            fileId = fileData.id;
+          }
+          return fileData;
+        }),
         isDirectory: true,
       };
-      setActivePlaylist(playlistData);
+      setActivePlaylist({
+        ...playlistData,
+        playlist: !shuffle
+          ? playlistData.files
+          : [...playlistData.files].sort(() => Math.random() - 0.5),
+      });
       localStorage.setItem("playlist", JSON.stringify(playlistData));
-      setSearch({ pl: "" });
+      setSearch({ pl: "", fileId });
     } else if (pl !== "" && pl !== null) {
       // set playlist
       const playlistData = playlists.find(
@@ -220,26 +275,56 @@ function App(props) {
               (file) => fileSelected.name === file.name
             ) !== -1)
       );
-      console.log("huuhuh0", pl, playlistData);
-      setActivePlaylist(playlistData);
+      if (playlistData)
+        setActivePlaylist({
+          ...playlistData,
+          playlist: !shuffle
+            ? playlistData.files
+            : [...playlistData.files].sort(() => Math.random() - 0.5),
+        });
+
       localStorage.setItem("playlist", JSON.stringify(playlistData));
-      //setSearch({ pl: "" });
+      // setSearch({ fileId });
     }
-  }, [pl, fileSelected, files, path, playlists, setSearch]);
+    // eslint-disable-next-line
+  }, [
+    fileSelected,
+    files,
+    path,
+    playlists,
+    //pl,
+    //setSearch
+  ]);
 
   useEffect(() => {
-    console.log("useEffect [videoHistory]");
     window.localStorage.setItem("videoHistory", JSON.stringify(videoHistory));
   }, [videoHistory]);
 
   useEffect(() => {
-    console.log("useEffect [favorites]");
     window.localStorage.setItem("favorites", JSON.stringify(favorites));
   }, [favorites]);
 
   useEffect(() => {
+    setPlaylist((prev) => playlists.find((pl) => pl.id === prev.id) || {});
+
     localStorage.setItem("playlists", JSON.stringify(playlists));
   }, [playlists]);
+
+  // shuffle playlist
+  useEffect(
+    () =>
+      setActivePlaylist((prev) =>
+        shuffle && prev
+          ? {
+              ...prev,
+              playlist: [...prev.files].sort(() => Math.random() - 0.5),
+            }
+          : prev
+          ? { ...prev, playlist: prev.files }
+          : null
+      ),
+    [shuffle]
+  );
 
   // children props
   const sidebarProps = {
@@ -250,6 +335,8 @@ function App(props) {
     path,
     startDir,
     favorites,
+    setFavorites,
+    setVideoHistory,
     setSmShowSidebar,
   };
   const mainProps = {
@@ -269,6 +356,7 @@ function App(props) {
     subtitles,
     autoNext,
     autoPlay,
+    shuffle,
     startDir,
     colorMode,
     dirs,
@@ -277,6 +365,8 @@ function App(props) {
     videoHistory,
     playlist,
     playlists,
+    sleep,
+    sleepTimer,
     setFavorites,
     setVideoHistory,
     setFileSelected,
@@ -284,7 +374,10 @@ function App(props) {
     setShowPlaylist,
     setPlaylist,
     setPlaylists,
+    setActivePlaylist,
     updateSettings,
+    startSleep,
+    cancelSleep,
   };
   const playlistProps = {
     activePlaylist,
@@ -293,10 +386,28 @@ function App(props) {
     createPlaylist,
     setShowPlaylist,
     setPlaylist,
+    setPlaylists,
   };
 
   return (
     <div className={`h-screen overflow-auto md:flex ${darkMode && "dark"}`}>
+      {sleep && sleepTimer === 0 && (
+        <Link
+          to="#"
+          className="fixed flex justify-center items-center z-50 w-full h-full bg-black bg-opacity-95"
+          onClick={(e) => {
+            e.preventDefault();
+            cancelSleep();
+          }}
+        >
+          <p className="text-8xl text-slate-700">
+            Turu zz<span className="text-7xl">zz</span>
+            <span className="text-6xl">zz</span>
+            <span className="text-5xl">...</span>
+          </p>
+        </Link>
+      )}
+
       <Sidebar
         className={`${
           !smShowSidebar && "hidden"
@@ -354,9 +465,24 @@ const PlaylistButton = ({ setShowPlaylist }) => (
       className="px-4 py-2 bg-blue-100 opacity-80 border border-blue-200 font-extrabold"
       onClick={() => setShowPlaylist(true)}
     >
-      📃
+      💽
     </button>
   </div>
 );
 
+const LinkWithQuery = ({ children, to, queries, ...props }) => {
+  const [searchParams] = useSearchParams();
+  let search = queries ? "" : "?";
+  searchParams.forEach((v, k) => {
+    if (!queries || (queries && queries.indexOf(k) !== -1))
+      search += `&${k}=${v}`;
+  });
+  return (
+    <Link to={to + search} {...props}>
+      {children}
+    </Link>
+  );
+};
+
+export { LinkWithQuery };
 export default App;

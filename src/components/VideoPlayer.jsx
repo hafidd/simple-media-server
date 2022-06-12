@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { Link, useParams } from "react-router-dom";
+import {
+  Link,
+  useParams,
+  useSearchParams,
+  useNavigate,
+} from "react-router-dom";
 import { toUrlParams } from "../helpers";
 
 export default function VideoPlayer(props) {
@@ -12,31 +16,46 @@ export default function VideoPlayer(props) {
     autoPlay,
     autoNext,
     nextFile,
+    sleep,
   } = props;
 
   const [isError, setIsError] = useState(false);
+
+  const navigate = useNavigate();
 
   const video = useRef();
   const videoSource = useRef();
 
   const { dirParam } = useParams();
 
-  let iv = useRef();
+  // get start time
+  const [search] = useSearchParams();
+  const pl = search.get("pl");
+  const time =
+    search.get("time") && !isNaN(search.get("time"))
+      ? parseInt(search.get("time"))
+      : null;
+  const hst = videoHistory.find((vh) => vh.file.videoSrc === file.videoSrc);
+  const startTime = time !== null ? time : hst ? parseInt(hst.currentTime) : 0;
+
+  let iv = useRef(); // interval
 
   useEffect(() => {
-    console.log("autoplay", autoPlay, "autonext", autoNext);
-  }, [autoPlay, autoNext]);
+    document.title = `Media Server - ${file.name}`;
+    return () => (document.title = "Simple Media Server");
+  }, []);
 
   useEffect(() => {
     console.log(
       "VideoPlayer.js useEffect [file, file.videoSrc, autoPlay, setVideoHistory]"
     );
     if (iv.current) clearInterval(iv.current);
-    if (!video.current) return;
+    if (!video) return;
 
     setIsError(false);
     video.current.load();
-    if (autoPlay) video.current.play();
+
+    // if (autoPlay) video.current.play();
 
     iv.current = setInterval(() => {
       const isVideoPlaying =
@@ -52,7 +71,6 @@ export default function VideoPlayer(props) {
           duration: video.current.duration,
           date: new Date().toISOString(),
         };
-        console.log("saving...");
         setVideoHistory((prevData) => {
           if (prevData.find((vh) => vh.file.videoSrc === file.videoSrc))
             return prevData.map((vh) => {
@@ -62,7 +80,7 @@ export default function VideoPlayer(props) {
           else return [...prevData, historyData];
         });
       }
-    }, 10000);
+    }, 30000);
 
     return () => {
       clearInterval(iv.current);
@@ -70,21 +88,13 @@ export default function VideoPlayer(props) {
   }, [file, file.videoSrc, autoPlay, setVideoHistory]);
 
   useEffect(() => {
-    console.log("VideoPlayer.js useEffect [file.videoSrc, videoHistory]");
-    const history = videoHistory.find(
-      (vh) => vh.file.videoSrc === file.videoSrc
-    );
-    if (
-      history &&
-      Math.round(video.current.currentTime) !== Math.round(history.currentTime)
-    )
-      video.current.currentTime = history.currentTime;
-  }, [file.videoSrc, videoHistory]);
+    if (sleep) video.current.pause();
+  }, [sleep]);
 
-  const navigate = useNavigate();
+  const ext = file.name.split(".")[file.name.split(".").length - 1];
 
   return (
-    <>
+    <div className="flex flex-col items-center">
       <div
         className={`flex flex-col items-center justify-center w-full mx-auto md:h-72 md:w-auto ${
           !isError ? "hidden" : "bg-red-50"
@@ -99,34 +109,50 @@ export default function VideoPlayer(props) {
           X
         </Link>
       </div>
-      <video
-        ref={video}
-        className={`w-full mx-auto md:h-72 md:w-auto ${
-          isError ? "hidden" : ""
-        }`}
-        onError={() => setIsError(true)}
-        onEnded={() => {
-          console.log(autoNext, nextFile);
-          if (autoNext && nextFile)
-            navigate(
-              toUrlParams([
-                nextFile.path,
-                [...nextFile.path, nextFile.name, "?start=0"],
-              ])
-            );
-        }}
-        controls
-      >
-        <source ref={videoSource} src={file.videoSrc} />
-        {subtitles.map((subtitle) => (
-          <track
-            key={"subtitle" + subtitle.lang + subtitle.number}
-            kind="subtitles"
-            label={subtitle.lang + "_" + subtitle.number}
-            src={subtitle.p}
-          />
-        ))}
-      </video>
-    </>
+      <div className="relative">
+        {["mp3", "ogg", "wav"].indexOf(ext) !== -1 && (
+          <div className="absolute x-0 y-0 w-full h-full flex justify-center items-center text-2xl break-all">
+            {ext}
+          </div>
+        )}
+        <video
+          ref={video}
+          className={`bg-transparent w-full mx-auto md:h-64 md:w-auto ${
+            isError ? "hidden" : ""
+          }`}
+          onError={() => setIsError(true)}
+          onEnded={() => {
+            if (autoNext && nextFile) {
+              navigate(
+                toUrlParams([
+                  nextFile.path,
+                  [...nextFile.path, nextFile.name],
+                  `?time=0&pl=${pl}&fileId=${nextFile.id}`,
+                ])
+              );
+            }
+          }}
+          onLoadedData={(e) => {
+            setTimeout(() => {
+              if (e.target.currentTime + 10 < startTime)
+                e.target.currentTime = startTime;
+            }, 1);
+          }}
+          controls
+          autoPlay={true}
+          name="media"
+        >
+          <source ref={videoSource} src={file.videoSrc} type="video/webm" />
+          {subtitles.map((subtitle) => (
+            <track
+              key={"subtitle" + subtitle.lang + subtitle.number}
+              kind="subtitles"
+              label={subtitle.lang + "_" + subtitle.number}
+              src={subtitle.p}
+            />
+          ))}
+        </video>
+      </div>
+    </div>
   );
 }

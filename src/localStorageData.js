@@ -3,10 +3,11 @@ let settings = {
   colorMode: "auto",
   autoPlay: false,
   autoNext: false,
+  shuffle: false,
 };
 let favoritesLocal = [];
 let videoHistoryLocal = [];
-let playlistLocal = [];
+let playlistLocal;
 let playlistsLocal = [];
 
 console.log("loading local storage data");

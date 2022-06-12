@@ -1,5 +1,6 @@
 const os = require("os");
 const fs = require("fs");
+const fsPromises = fs.promises;
 const path = require("path");
 
 const genThumbnail = require("simple-thumbnail");
@@ -7,6 +8,8 @@ const { SubtitleParser } = require("matroska-subtitles");
 const Vtt = require("vtt-creator");
 
 const platform = os.platform();
+
+//const scanIds = require("../index");
 
 async function getRootDirs() {
   if (platform === "win32") {
@@ -36,17 +39,31 @@ async function getRootDirs() {
 
 // get directory and file list
 // p = ["/", "home", "prkm"]
-function getDirs(
+async function getDirs(
   p = [],
-  ext = [".mp4", ".mkv", ".flv", ".mov", ".avi", ".wmv"]
+  ext = [
+    ".mp4",
+    ".mkv",
+    ".flv",
+    ".mov",
+    ".avi",
+    ".wmv",
+    ".ts",
+    ".mp3",
+    ".wav",
+    ".ogg",
+  ]
 ) {
   p = getFilePath(p);
-  console.log(p);
+  //console.log(p);
   try {
     if (p.length < 1) return getRootDirs();
     const fullPath = path.join(p, "/");
     //console.log(fullPath);
-    const allFiles = fs.readdirSync(fullPath, { withFileTypes: true });
+    //const allFiles = fs.readdirSync(fullPath, { withFileTypes: true });
+    const allFiles = await fsPromises.readdir(fullPath, {
+      withFileTypes: true,
+    });
     const dirs = allFiles
       .filter((item) => item.isDirectory())
       .map((item) => item.name);
@@ -64,14 +81,77 @@ function getDirs(
   }
 }
 
+// get files recursive
+// return = [{dirPath: arr, file: string}]
+const getFiles = async function ({
+  id,
+  dirPath,
+  arrayOfFiles,
+  exclude = [
+    "node_modules",
+    "windows",
+    ".pnpm-store",
+    "program files",
+    "programdata",
+    "appdata",
+    "program files (x86)",
+  ],
+}) {
+  if (
+    exclude
+      .map((e) => e.toLowerCase())
+      .indexOf(dirPath[dirPath.length - 1].toLowerCase()) !== -1
+  ) {
+    console.log(`skip ${dirPath.join("/")}`);
+    throw new Error("");
+  }
+
+  // cancel
+  if (scanIds.indexOf(id) === -1) return [];
+
+  dirs = await getDirs(dirPath);
+
+  arrayOfFiles = arrayOfFiles || [];
+
+  arrayOfFiles = [
+    ...arrayOfFiles,
+    ...dirs.files.map((file) => ({ dirPath, file })),
+  ];
+
+  for (const dir of dirs.dirs) {
+    try {
+      if (
+        exclude.map((e) => e.toLowerCase()).indexOf(dir.toLowerCase()) !== -1
+      ) {
+        console.log(`skip ${[...dirPath, dir].join("/")}`);
+        continue;
+      }
+      arrayOfFiles = await getFiles({
+        id,
+        dirPath: [...dirPath, dir],
+        arrayOfFiles,
+      });
+    } catch (error) {
+      console.log(
+        `skip ${[...dirPath, dir].join("/")}`,
+        error && error.status ? error.status : ""
+      );
+      continue;
+    }
+  }
+
+  return arrayOfFiles;
+};
+
 let test = 1;
 // create file stream
 function getFileStream(props) {
   try {
     const { range, arrPath, stringPath } = props;
     filePath = arrPath ? getFilePath(arrPath) : stringPath;
-    //console.log(filePath);
+    // console.log(filePath);
     const stat = fs.statSync(filePath);
+    // console.log(filePath, stat);
     const total = stat.size;
 
     if (range) {
@@ -79,7 +159,7 @@ function getFileStream(props) {
       const partialstart = parts[0];
       const partialend = parts[1];
 
-      const max = 2 * 1024 * 1024;
+      const max = 8 * 1024 * 1024;
 
       const start = parseInt(partialstart, 10);
       //const endx = partialend ? parseInt(partialend, 10) : total - 1;
@@ -90,11 +170,16 @@ function getFileStream(props) {
         : total - 1;
       const chunksize = end - start + 1;
       console.log(
+        { start: partialstart / 1024 / 1024 },
+        { end: partialend / 1024 / 1024 }
+      );
+      console.log(
         filePath,
         `(${test++})`,
-        `${Math.trunc(total / (1024 * 1024))}MB`,
-        `Start:${start}`,
-        `End:${start}`
+        `Total:${Math.trunc(total / (1024 * 1024))}MB`,
+        `Start:${Math.floor(start / 1024 / 1024)}`,
+        `End:${Math.floor(end / 1024 / 1024)}`,
+        `Size:${Math.floor(chunksize / 1024 / 1024)}`
       );
 
       return {
@@ -266,8 +351,16 @@ const getMimeType = (fileName) => {
       return "video/x-ms-wmv";
     case "mov":
       return "video/quicktime";
+    case "ts":
+      return "video/MP2T";
+    case "mp3":
+      return "audio/mpeg";
+    case "ogg":
+      return "audio/ogg";
+    case "wav":
+      return "audio/vnd.wav";
     default:
-      return "";
+      return "video/mp4";
   }
 };
 
@@ -282,11 +375,16 @@ function __returnError(error) {
   throw error;
 }
 
+function testy() {
+  return scanIds;
+}
 module.exports = {
   getDirs,
+  getFiles,
   getMimeType,
   getFilePath,
   getFileStream,
   getMkvSubtitles,
   getThumbnailStream,
+  testy,
 };
