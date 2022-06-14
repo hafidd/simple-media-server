@@ -12,7 +12,7 @@ Run local development server
 1. Install node, git
 2. clone repo `git clone https://github.com/hafidd/simple-media-server.git path/to/appDirectory`
 3. cd to app directory `cd path/to/appDirectory`
-4. install required dependencies `npm --production=false instal`
+4. install required dependencies `npm --production=false install`
 5. run development server `npm run dev`
 
 
