@@ -7,7 +7,7 @@
     "axios": "^0.27.2",
     "matroska-subtitles": "^3.3.2",
     "simple-thumbnail": "^1.6.5",
-    "vtt-creator": "^1.1.1",    
+    "vtt-creator": "^1.1.1"
   },
   "scripts": {
     "start": "node server/index",
