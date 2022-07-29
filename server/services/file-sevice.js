@@ -9,6 +9,8 @@ const Vtt = require("vtt-creator");
 
 const platform = os.platform();
 
+const { serverPath } = require("../");
+
 //const scanIds = require("../index");
 
 async function getRootDirs() {
@@ -221,7 +223,8 @@ function getMkvSubtitles(arrPath) {
         tracks.forEach((track, i) => {
           // check
           const subtitlePath = path.join(
-            "server/files/subtitles",
+            serverPath,
+            "files/subtitles",
             filePath.replace(/[/\\?%*:|"<>]/g, "-") +
               `-${track.number}-${track.language || "unknown"}` +
               ".vtt"
@@ -294,7 +297,8 @@ async function getThumbnailStream(videoPath) {
 
   // thumbnail filepath
   const fileName = videoPath.replace(/[/\\?%*:|"<>]/g, "-") + ".png";
-  const tbPath = path.join("server", "files", "thumbnails", fileName);
+  const tbPath = path.join(serverPath, "files", "thumbnails", fileName);
+  console.log(typeof __dirname);
   //console.log("FILENAME", fileName);
   // thumbnail exist
   if (checkFileExistsSync(tbPath)) return fs.createReadStream(tbPath);
@@ -306,7 +310,8 @@ async function getThumbnailStream(videoPath) {
     await genThumbnail(videoPath, tbPath, "?x85");
     return fs.createReadStream(tbPath);
   } catch (error) {
-    __returnError(error);
+    //__returnError(error);
+    __returnError({});
   }
 }
 
